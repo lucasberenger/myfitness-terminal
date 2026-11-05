@@ -1,0 +1,20 @@
+[project]
+name = "fitness-chat"
+version = "0.1.0"
+description = "Diário alimentar pessoal com agente via Groq"
+readme = "README.md"
+authors = [
+    { name = "lucasberenger", email = "thegreatberenger@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = ["fastapi", "uvicorn[standard]", "sqlalchemy", "psycopg[binary]", "alembic", "pydantic-settings", "groq"]
+
+[project.scripts]
+fitness-chat = "fitness_chat:main"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = ["pytest", "httpx"]
