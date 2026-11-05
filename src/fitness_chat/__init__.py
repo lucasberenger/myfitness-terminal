@@ -1,5 +1,5 @@
 """Diário alimentar pessoal."""
 
+from fitness_chat.cli import main
 
-def main() -> None:
-    print("Fitness Chat: CLI ainda não implementada.")
+__all__ = ['main']

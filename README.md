@@ -45,6 +45,58 @@ Horários devem incluir fuso. O resumo usa `TIMEZONE` (padrão
 para cada registro, preservando o histórico se o catálogo mudar.
 Cálculos usam Decimal; decimais são serializados como strings na resposta.
 
+## CLI interativa
+
+Com a API ativa em outro terminal:
+
+```sh
+uv run fitness-chat
+```
+
+Digite mensagens normalmente; a resposta aparece com quebras de linha reais.
+O cliente usa HTTP e a biblioteca padrão do Python, sem novas dependências.
+Ele não acessa o PostgreSQL nem precisa receber a chave Groq.
+
+```text
+Você > Quais alimentos com arroz estão cadastrados?
+Você > Registre 150 g desse arroz no almoço de hoje.
+Você > Na verdade, foram 200 g.
+Você > Qual o total de hoje?
+```
+
+Comandos:
+
+- `/new`: iniciar outra conversa, sem apagar refeições ou histórico do servidor.
+- `/conversation`: mostrar o ID atual.
+- `/help`: mostrar ajuda.
+- `/exit` ou `/quit`: sair; Ctrl+D e Ctrl+C também encerram a sessão.
+
+O identificador é salvo em `.fitness-chat.json` no diretório atual, separado
+por URL da API. Esse arquivo está ignorado pelo Git e não contém o texto das
+mensagens. Para retomar automaticamente, execute no mesmo diretório.
+Evite executar dois clientes usando o mesmo arquivo de sessão ao mesmo tempo.
+
+Para continuar uma conversa criada no Swagger:
+
+```sh
+uv run fitness-chat --conversation 5d32ef20-db75-4799-82c3-c834d232244d
+```
+
+Outras opções:
+
+```sh
+uv run fitness-chat --new
+uv run fitness-chat --api-url http://127.0.0.1:8000 --timeout 60
+uv run fitness-chat --state-file /tmp/minha-sessao-fitness.json
+uv run fitness-chat --help
+```
+
+O timeout padrão do cliente é 45 segundos; ajuste-o para ficar acima do prazo
+configurado no agente. Em falhas de rede, não há reenvio automático. O servidor
+pode ter concluído a operação mesmo que a resposta não tenha chegado: consulte o
+resumo antes de repetir uma gravação. Uma conversa inexistente retorna erro e
+sugere `/new`, sem criar outra silenciosamente.
+
 ## Verificar e desenvolver
 
 ```sh
@@ -114,11 +166,11 @@ e [modelos Groq](https://console.groq.com/docs/models).
 
 1. Validar API e migrações com PostgreSQL local.
 2. Avaliar a integração real com Groq e ampliar os cenários de avaliação.
-3. Implementar CLI HTTP e conversas persistidas.
+3. Ampliar a experiência da CLI e os cenários de avaliação.
 4. Adicionar idempotência, metas e avaliações do agente.
 
 `GROQ_API_KEY` e `GROQ_MODEL` ficam no `.env`.
-O comando `fitness-chat` permanece um placeholder até a implementação da CLI.
+O comando `fitness-chat` inicia o cliente interativo de terminal.
 
 ## Proteção da resposta final
 

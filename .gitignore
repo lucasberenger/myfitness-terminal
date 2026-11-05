@@ -11,3 +11,6 @@ wheels/
 
 .env
 .pytest_cache/
+
+# Estado local do cliente de terminal
+.fitness-chat.json
