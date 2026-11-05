@@ -50,7 +50,7 @@ def test_tools_and_persisted_context(session):
     conversation = session.get(Conversation, str(first.conversation_id))
     assert conversation.messages[0]['content'] == 'Registre meu almoço'
     assert conversation.messages[-2]['content'] == 'Obrigado'
-    assert len(client.chat.completions.create.call_args.kwargs['messages']) == 9
+    assert len(client.chat.completions.create.call_args.kwargs['messages']) == 8
 
 
 def test_limit_rolls_back_writes_and_history(session):
@@ -70,7 +70,7 @@ def test_invalid_tool_arguments_return_error_to_model(session):
         completion('Qual alimento e quantidade?')]
     run_chat(session, settings(), ChatInput(message='Comi arroz'), client=client)
     messages = client.chat.completions.create.call_args.kwargs['messages']
-    assert 'Argumentos inválidos' in messages[-2]['content']
+    assert 'Argumentos inválidos' in messages[-1]['content']
     assert session.scalar(select(MealItem)) is None
 
 
@@ -107,3 +107,45 @@ def test_provider_error_rolls_back(session):
         run_chat(session, settings(), ChatInput(message='Registre almoço'), client=client)
     assert session.scalar(select(MealItem)) is None
     assert session.scalar(select(Conversation)) is None
+
+
+def test_repetitive_answer_is_regenerated_without_reexecuting_tools(session):
+    client = Mock()
+    client.chat.completions.create.side_effect = [
+        completion(calls=[tool('create_meal', '{"food_id":1,"label":"Almoço","grams":200,"consumed_at":"2026-11-04T12:00:00Z"}')]),
+        completion('Alteração feita!\n' + '...\n\n' * 100),
+        completion('Registrado: 200 g de arroz, 260 kcal.')]
+    result = run_chat(session, settings(), ChatInput(message='Registre'), client=client)
+    assert result.message == 'Registrado: 200 g de arroz, 260 kcal.'
+    assert len(session.scalars(select(MealItem)).all()) == 1
+    assert client.chat.completions.create.call_args.kwargs['tool_choice'] == 'none'
+    history = session.get(Conversation, str(result.conversation_id)).messages
+    assert all('...\n\n' not in str(m.get('content')) for m in history)
+
+
+def test_repeated_repair_failure_rolls_back(session):
+    from fitness_chat.agent.runner import AgentUnavailable
+    client = Mock()
+    client.chat.completions.create.side_effect = [
+        completion(calls=[tool('create_meal', '{"food_id":1,"label":"Almoço","grams":200,"consumed_at":"2026-11-04T12:00:00Z"}')]),
+        completion('...\n' * 20), completion('...\n' * 20)]
+    with pytest.raises(AgentUnavailable):
+        run_chat(session, settings(), ChatInput(message='Registre'), client=client)
+    assert session.scalar(select(MealItem)) is None
+
+
+def test_truncated_answer_is_not_accepted(session):
+    client = Mock()
+    truncated = completion('Resposta cortada')
+    truncated.choices[0].finish_reason = 'length'
+    client.chat.completions.create.side_effect = [truncated, completion('Como posso ajudar?')]
+    result = run_chat(session, settings(), ChatInput(message='Oi'), client=client)
+    assert result.message == 'Como posso ajudar?'
+
+
+def test_corrupted_history_is_not_sent_back_to_model():
+    from fitness_chat.agent.runner import clean_history
+    old = [{'role': 'assistant', 'content': '...\n' * 30}]
+    cleaned = clean_history(old)
+    assert cleaned[0]['content'] == '[Resposta anterior inválida omitida.]'
+    assert old[0]['content'] == '...\n' * 30

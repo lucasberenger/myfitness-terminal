@@ -1,6 +1,7 @@
 """Ciclo explícito: modelo → validação → ferramenta → modelo."""
 import json
 import logging
+from collections import Counter
 from datetime import datetime
 from time import monotonic
 from uuid import UUID, uuid4
@@ -37,9 +38,28 @@ class AgentLimit(Exception):
     pass
 
 
+def valid_answer(content: str | None) -> bool:
+    """Heurística conservadora para respostas vazias ou em loop de repetição."""
+    if not content or not content.strip() or len(content) > 6000:
+        return False
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    repeated = Counter(lines)
+    if any(count >= 8 for count in repeated.values()):
+        return False
+    return True
+
+
+def clean_history(messages: list[dict]) -> list[dict]:
+    # Preserva ferramentas e contexto, mas não realimenta texto degenerado antigo.
+    return [dict(message, content='[Resposta anterior inválida omitida.]')
+            if message.get('role') == 'assistant' and not message.get('tool_calls')
+            and not valid_answer(message.get('content')) else dict(message)
+            for message in messages]
+
+
 def instructions(settings: Settings) -> str:
     now = datetime.now(ZoneInfo(settings.timezone)).isoformat()
-    return f'''Você é um diário alimentar pessoal. Responda em português.
+    return f'''Você é um diário alimentar pessoal. Responda em português, de forma curta e sem repetições.
 Agora: {now}. Fuso do usuário: {settings.timezone}.
 Use ferramentas para consultar dados e realizar alterações. Nunca invente IDs,
 valores nutricionais, quantidades ou resultados de operações. Busque alimentos
@@ -73,7 +93,8 @@ def run_chat(session: Session, settings: Settings, data: ChatInput, *, client=No
             session.add(conversation)
         if len(conversation.messages) >= 160:
             raise AgentLimit('Limite de contexto atingido. Inicie uma nova conversa.')
-        history = [*conversation.messages, {'role': 'user', 'content': data.message}]
+        history = [*clean_history(conversation.messages), {'role': 'user', 'content': data.message}]
+        repairing = False
         messages = [{'role': 'system', 'content': instructions(settings)}, *history]
         for round_number in range(settings.agent_max_rounds):
             remaining = settings.agent_timeout_seconds - (monotonic() - started)
@@ -81,28 +102,39 @@ def run_chat(session: Session, settings: Settings, data: ChatInput, *, client=No
                 raise AgentLimit('Tempo limite do agente atingido. Nenhuma alteração desta mensagem foi salva.')
             response = client.chat.completions.create(
                 model=settings.groq_model, messages=messages, tools=definitions(),
-                tool_choice='auto', temperature=0, max_completion_tokens=1024,
+                tool_choice='none' if repairing else 'auto', temperature=0, max_completion_tokens=1024,
                 timeout=remaining)
             logger.info('agent_round round=%s elapsed=%.3f tokens=%s', round_number + 1,
                         monotonic() - started,
                         response.usage.total_tokens if response.usage else None)
             if monotonic() - started > settings.agent_timeout_seconds:
                 raise AgentLimit('Tempo limite atingido. Nenhuma alteração desta mensagem foi salva.')
-            reply = response.choices[0].message
+            choice = response.choices[0]
+            reply = choice.message
             calls = reply.tool_calls or []
             if len(calls) > 8:
                 raise AgentLimit('Excesso de ferramentas. Nenhuma alteração desta mensagem foi salva.')
-            assistant = {'role': 'assistant', 'content': reply.content}
-            if calls:
-                assistant['tool_calls'] = [c.model_dump(exclude_none=True) for c in calls]
-            history.append(assistant)
-            messages.append(assistant)
+            if repairing and calls:
+                raise AgentUnavailable('Resposta inválida do modelo. Nenhuma alteração desta mensagem foi salva.')
             if not calls:
-                if not reply.content:
-                    raise AgentUnavailable('O modelo retornou uma resposta vazia.')
+                if choice.finish_reason != 'stop' or not valid_answer(reply.content):
+                    if repairing:
+                        raise AgentUnavailable('Resposta inválida do modelo. Nenhuma alteração desta mensagem foi salva.')
+                    repairing = True
+                    logger.warning('agent_invalid_answer finish_reason=%s', choice.finish_reason)
+                    messages.append({'role': 'system', 'content':
+                        'A resposta final anterior foi descartada por truncamento ou repetição. '
+                        'Responda de forma breve usando os resultados já obtidos. '
+                        'Não solicite ferramentas nem repita operações.'})
+                    continue
+                history.append({'role': 'assistant', 'content': reply.content})
                 conversation.messages = history
                 session.commit()
                 return ChatOutput(conversation_id=conversation.id, message=reply.content)
+            assistant = {'role': 'assistant', 'content': reply.content,
+                         'tool_calls': [c.model_dump(exclude_none=True) for c in calls]}
+            history.append(assistant)
+            messages.append(assistant)
             for call in calls:
                 try:
                     result = execute(session, call.function.name, call.function.arguments, settings.timezone)

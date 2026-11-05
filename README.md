@@ -119,3 +119,13 @@ e [modelos Groq](https://console.groq.com/docs/models).
 
 `GROQ_API_KEY` e `GROQ_MODEL` ficam no `.env`.
 O comando `fitness-chat` permanece um placeholder até a implementação da CLI.
+
+## Proteção da resposta final
+
+Respostas vazias, acima de 6000 caracteres, com uma mesma linha não vazia
+repetida oito vezes ou mais, ou finalizadas por motivo diferente de `stop`
+são rejeitadas. Há uma tentativa de gerar novamente apenas o texto final, com
+ferramentas desabilitadas, respeitando o prazo e o limite de rodadas existentes.
+Se ela falhar, a transação é desfeita. Essa heurística não detecta toda resposta
+incorreta ou incoerente. Respostas antigas com esses sinais são omitidas do
+contexto enviado ao modelo, preservando os resultados das ferramentas.
