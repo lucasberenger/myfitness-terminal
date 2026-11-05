@@ -73,3 +73,16 @@ def test_invalid_state_does_not_silently_start_new_conversation(tmp_path):
     with patch('fitness_chat.cli.send_message') as send:
         assert interact(URL, path, 45, write=lambda _: None) == 1
         send.assert_not_called()
+
+
+def test_connection_refused_suggests_starting_api():
+    error = URLError(ConnectionRefusedError(111, 'Connection refused'))
+    with patch('fitness_chat.cli.urlopen', side_effect=error):
+        with pytest.raises(ChatError, match='Inicie a API em outro terminal'):
+            send_message(URL, 'Oi', None, 45)
+
+
+def test_timeout_is_distinct_from_connection_refused():
+    with patch('fitness_chat.cli.urlopen', side_effect=TimeoutError()):
+        with pytest.raises(ChatError, match='Tempo de espera da API esgotado'):
+            send_message(URL, 'Registre', None, 45)

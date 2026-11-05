@@ -84,7 +84,14 @@ def send_message(url: str, message: str, conversation_id: str | None, timeout: f
         hint = ' Use /new para iniciar outra conversa.' if exc.code == 404 else ''
         raise ChatError(f'API retornou HTTP {exc.code}{detail}.{hint}') from exc
     except (URLError, TimeoutError, OSError) as exc:
-        raise ChatError('Falha de conexão ou timeout. Confira se a API está ativa. '
+        reason = exc.reason if isinstance(exc, URLError) else exc
+        if isinstance(reason, ConnectionRefusedError):
+            raise ChatError(f'Conexão recusada em {url}. Inicie a API em outro terminal: '
+                            'uv run uvicorn fitness_chat.api:app --reload') from exc
+        if isinstance(reason, TimeoutError):
+            raise ChatError('Tempo de espera da API esgotado. Confira os logs do servidor. '
+                            'O resultado pode ter sido salvo; consulte o resumo antes de reenviar.') from exc
+        raise ChatError('Falha de conexão com a API. Confira a URL e se o servidor está ativo. '
                         'O resultado pode ter sido salvo; consulte o resumo antes de reenviar.') from exc
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         raise ChatError('Resposta inválida da API. Consulte o resumo antes de reenviar.') from exc
