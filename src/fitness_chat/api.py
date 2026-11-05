@@ -1,5 +1,6 @@
 """API local para o diário alimentar."""
 from datetime import date
+from fitness_chat.agent.runner import AgentLimit, AgentUnavailable, ChatInput, ChatOutput, run_chat
 from typing import Annotated
 from fastapi import Depends, FastAPI, Query, Response
 from fastapi.responses import JSONResponse
@@ -64,3 +65,19 @@ def delete_meal(item_id: int, session: Database):
 @app.get('/summaries/daily')
 def summary(day: date, session: Database, settings: Annotated[Settings, Depends(get_settings)]):
     return daily_summary(session, day, settings.timezone)
+
+
+
+@app.exception_handler(AgentUnavailable)
+async def agent_unavailable(request, exc):
+    return JSONResponse(status_code=503, content={'detail': str(exc)})
+
+
+@app.exception_handler(AgentLimit)
+async def agent_limit(request, exc):
+    return JSONResponse(status_code=504, content={'detail': str(exc)})
+
+
+@app.post('/chat', response_model=ChatOutput)
+def chat(data: ChatInput, session: Database, settings: Annotated[Settings, Depends(get_settings)]):
+    return run_chat(session, settings, data)

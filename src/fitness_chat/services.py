@@ -20,14 +20,17 @@ def require(session: Session, model, identifier: int):
     return item
 
 
-def register_meal(session: Session, data: MealInput) -> MealItem:
+def register_meal(session: Session, data: MealInput, *, commit: bool = True) -> MealItem:
     food = require(session, Food, data.food_id)
     item = MealItem(**data.model_dump(exclude={'consumed_at'}),
                     consumed_at=data.consumed_at.astimezone(timezone.utc),
                     recorded_at=datetime.now(timezone.utc), food_name=food.name,
                     source=food.source, **{n: getattr(food, n) for n in NUTRIENTS})
     session.add(item)
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     session.refresh(item)
     return item
 

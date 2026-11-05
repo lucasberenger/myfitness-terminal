@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, create_engine
+from sqlalchemy import DateTime, ForeignKey, Numeric, String, JSON, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from fitness_chat.config import get_settings
 from functools import lru_cache
@@ -46,3 +46,9 @@ def session_factory():
 def get_session():
     with session_factory()() as session:
         yield session
+
+
+class Conversation(Base):
+    __tablename__ = 'conversations'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    messages: Mapped[list] = mapped_column(JSON, default=list)

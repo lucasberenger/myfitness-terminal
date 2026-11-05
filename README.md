@@ -1,6 +1,6 @@
 # Fitness Chat
 
-Diário alimentar pessoal: Python, uv, FastAPI, PostgreSQL e futuro agente Groq.
+Diário alimentar pessoal: Python, uv, FastAPI, PostgreSQL e agente Groq.
 
 ## Executar localmente
 
@@ -60,12 +60,62 @@ A migração inicial também é verificada em SQLite isolado no ambiente de dese
 Dependências: `uv add pacote`, `uv add --dev pacote`. Versione `uv.lock`.
 Nunca versione `.env`.
 
+## Chat com Groq
+
+Aplique a nova migração e reinicie a API:
+
+```sh
+uv run alembic upgrade head
+uv run uvicorn fitness_chat.api:app --reload --host 127.0.0.1
+```
+
+Configure `GROQ_API_KEY` e `GROQ_MODEL` no `.env`.
+Exemplo de modelo: `llama-3.3-70b-versatile`. Ele deve estar disponível na sua
+conta e suportar tool calling. O SDK é síncrono, assim como os serviços SQL;
+o endpoint FastAPI executa no pool de threads.
+
+No Swagger, use `POST /chat`:
+
+```json
+{"message":"Quais alimentos com arroz estão cadastrados?"}
+```
+
+A resposta contém `message` e `conversation_id`. Reutilize o identificador nas
+mensagens seguintes para manter o contexto:
+
+```json
+{"message":"Registre 150 g desse arroz no almoço de hoje.","conversation_id":"UUID retornado anteriormente"}
+```
+
+Para iniciar outra conversa, omita o identificador. Conversas desconhecidas
+retornam 404. O agente pode buscar alimentos, registrar e corrigir itens e
+consultar resumos; exclusão e cadastro de alimentos continuam pela API comum.
+
+O histórico fica no PostgreSQL; mensagens e resultados de ferramentas são
+reenviados à Groq para fornecer contexto. Evite dados pessoais desnecessários.
+Cada interação tem até `AGENT_MAX_ROUNDS` chamadas ao modelo (padrão 6), no máximo
+8 ferramentas por resposta e prazo de `AGENT_TIMEOUT_SECONDS` (padrão 30).
+Após 160 mensagens internas é necessário iniciar uma nova conversa.
+Falhas no provedor retornam 503; limites de execução retornam 504.
+
+Gravações e histórico da mensagem são confirmados juntos após a resposta final.
+Em falhas antes do commit, as alterações são desfeitas. Não há idempotência entre
+requisições: reenviar uma mensagem concluída pode duplicar o registro.
+O histórico de uma mesma conversa é serializado por lock de linha no PostgreSQL.
+
+Logs registram duração, rodada e consumo total de tokens por chamada, sem chave
+ou conteúdo das mensagens. Os testes do agente simulam a Groq e não gastam tokens.
+A integração real com o modelo deve ser verificada no ambiente local.
+
+Referências: [tool calling](https://console.groq.com/docs/tool-use/local-tool-calling)
+e [modelos Groq](https://console.groq.com/docs/models).
+
 ## Próximos marcos
 
 1. Validar API e migrações com PostgreSQL local.
-2. Integrar Groq com ferramentas validadas e ciclo de execução limitado.
+2. Avaliar a integração real com Groq e ampliar os cenários de avaliação.
 3. Implementar CLI HTTP e conversas persistidas.
 4. Adicionar idempotência, metas e avaliações do agente.
 
-`GROQ_API_KEY` e `GROQ_MODEL` ficam no `.env`; ainda não são usados.
+`GROQ_API_KEY` e `GROQ_MODEL` ficam no `.env`.
 O comando `fitness-chat` permanece um placeholder até a implementação da CLI.
